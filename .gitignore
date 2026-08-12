@@ -1,0 +1,28 @@
+# Python / Streamlit
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.streamlit/secrets.toml
+
+# Local previews / OCR helpers
+_*.png
+_*.jpg
+_check_*.png
+_tpl_*.png
+_ocr_*.png
+_full_*.png
+_crop_*.jpg
+_preview_*.png
+_analyze_*.py
+
+# Generated outputs (keep the original template)
+Referee_Rule_Cards.pdf
+Referee_Match_Report_Card_*.pdf
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
