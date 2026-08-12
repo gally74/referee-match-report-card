@@ -20,13 +20,22 @@ BOTTOM_Y0 = 426.5
 INSET = 32.0
 RIGHT_INSET = 40.0
 
+# Wallet flaps need more clearance from the cut (print test: left flap was tight)
+WALLET_LEFT_INSET = 46.0
+WALLET_RIGHT_INSET = 48.0
+WALLET_TOP_INSET = 40.0
+WALLET_BOTTOM_INSET = 40.0
+# Keep clear of the printed "Please slide into flap of wallet" band
+WALLET_ABOVE_BOTTOM = 160.0   # was 168 — stop earlier
+WALLET_BELOW_TOP = 232.0      # was 225 — start lower
+
 COVER_TITLE_SLOTS = [
     (452.8, 324.0),
     (452.8, 745.0),
 ]
 
-NOTAI_LEFT = 342.0
-NOTAI_RIGHT = PAGE_W - 42.0
+NOTAI_LEFT = 348.0
+NOTAI_RIGHT = PAGE_W - 48.0
 
 _LINE_HEIGHT_FACTOR = 1.2
 _WALLET_FONT_MAX = 7.2
@@ -37,16 +46,56 @@ _NOTAI_FONT_MIN = 5.5
 
 def _wallet_rects() -> tuple[list[fitz.Rect], list[fitz.Rect]]:
     above = [
-        fitz.Rect(INSET, TOP_Y0 + INSET, CARD_W - RIGHT_INSET, TOP_Y0 + 168),
-        fitz.Rect(CARD_W + INSET, TOP_Y0 + INSET, PAGE_W - RIGHT_INSET, TOP_Y0 + 168),
-        fitz.Rect(INSET, BOTTOM_Y0 + INSET, CARD_W - RIGHT_INSET, BOTTOM_Y0 + 168),
-        fitz.Rect(CARD_W + INSET, BOTTOM_Y0 + INSET, PAGE_W - RIGHT_INSET, BOTTOM_Y0 + 168),
+        fitz.Rect(
+            WALLET_LEFT_INSET,
+            TOP_Y0 + WALLET_TOP_INSET,
+            CARD_W - WALLET_RIGHT_INSET,
+            TOP_Y0 + WALLET_ABOVE_BOTTOM,
+        ),
+        fitz.Rect(
+            CARD_W + WALLET_LEFT_INSET,
+            TOP_Y0 + WALLET_TOP_INSET,
+            PAGE_W - WALLET_RIGHT_INSET,
+            TOP_Y0 + WALLET_ABOVE_BOTTOM,
+        ),
+        fitz.Rect(
+            WALLET_LEFT_INSET,
+            BOTTOM_Y0 + WALLET_TOP_INSET,
+            CARD_W - WALLET_RIGHT_INSET,
+            BOTTOM_Y0 + WALLET_ABOVE_BOTTOM,
+        ),
+        fitz.Rect(
+            CARD_W + WALLET_LEFT_INSET,
+            BOTTOM_Y0 + WALLET_TOP_INSET,
+            PAGE_W - WALLET_RIGHT_INSET,
+            BOTTOM_Y0 + WALLET_ABOVE_BOTTOM,
+        ),
     ]
     below = [
-        fitz.Rect(INSET, TOP_Y0 + 225, CARD_W - RIGHT_INSET, TOP_Y0 + CARD_H - INSET),
-        fitz.Rect(CARD_W + INSET, TOP_Y0 + 225, PAGE_W - RIGHT_INSET, TOP_Y0 + CARD_H - INSET),
-        fitz.Rect(INSET, BOTTOM_Y0 + 225, CARD_W - RIGHT_INSET, BOTTOM_Y0 + CARD_H - INSET),
-        fitz.Rect(CARD_W + INSET, BOTTOM_Y0 + 225, PAGE_W - RIGHT_INSET, BOTTOM_Y0 + CARD_H - INSET),
+        fitz.Rect(
+            WALLET_LEFT_INSET,
+            TOP_Y0 + WALLET_BELOW_TOP,
+            CARD_W - WALLET_RIGHT_INSET,
+            TOP_Y0 + CARD_H - WALLET_BOTTOM_INSET,
+        ),
+        fitz.Rect(
+            CARD_W + WALLET_LEFT_INSET,
+            TOP_Y0 + WALLET_BELOW_TOP,
+            PAGE_W - WALLET_RIGHT_INSET,
+            TOP_Y0 + CARD_H - WALLET_BOTTOM_INSET,
+        ),
+        fitz.Rect(
+            WALLET_LEFT_INSET,
+            BOTTOM_Y0 + WALLET_BELOW_TOP,
+            CARD_W - WALLET_RIGHT_INSET,
+            BOTTOM_Y0 + CARD_H - WALLET_BOTTOM_INSET,
+        ),
+        fitz.Rect(
+            CARD_W + WALLET_LEFT_INSET,
+            BOTTOM_Y0 + WALLET_BELOW_TOP,
+            PAGE_W - WALLET_RIGHT_INSET,
+            BOTTOM_Y0 + CARD_H - WALLET_BOTTOM_INSET,
+        ),
     ]
     return above, below
 
