@@ -28,7 +28,22 @@ from notes_store import (
     notes_from_json,
     parse_browser_store,
 )
-from pdf_overlay import TEMPLATE, build_custom_card
+from pdf_overlay import TEMPLATE, build_custom_card, notai_line_budget, wallet_line_budget
+
+
+def _show_line_budget(label: str, budget: dict) -> None:
+    used = budget["used"]
+    maximum = budget["max"]
+    remaining = budget["remaining"]
+    if remaining >= 4:
+        st.caption(f"{label}: **{remaining}** lines left ({used}/{maximum} used)")
+    elif remaining >= 0:
+        st.warning(f"{label}: only **{remaining}** lines left ({used}/{maximum} used)")
+    else:
+        st.error(
+            f"{label}: **{-remaining}** lines over — text will be cut off on the PDF "
+            f"({used}/{maximum} used)"
+        )
 
 st.set_page_config(
     page_title="Referee Card Customiser",
@@ -217,7 +232,10 @@ title = st.text_input(
 )
 
 st.subheader("Wallet flap notes")
-st.caption("Blank “Please slide into flap of wallet” page — two cards after you cut.")
+st.caption(
+    "Blank “Please slide into flap of wallet” page — two cards after you cut. "
+    "Click outside a box (or Ctrl+Enter) to refresh the line count."
+)
 
 w1, w2 = st.columns(2)
 with w1:
@@ -229,6 +247,7 @@ with w1:
         label_visibility="collapsed",
         placeholder="Notes for the top card…",
     )
+    _show_line_budget("Card 1", wallet_line_budget(wallet_notes_card1))
 with w2:
     st.markdown("**Card 2 (bottom of page)**")
     wallet_notes_card2 = st.text_area(
@@ -238,6 +257,7 @@ with w2:
         label_visibility="collapsed",
         placeholder="Notes for the bottom card…",
     )
+    _show_line_budget("Card 2", wallet_line_budget(wallet_notes_card2))
 
 st.subheader("Nótaí notes")
 st.caption("Right-hand Nótaí column on the team / notes page (both card copies).")
@@ -248,14 +268,26 @@ notai_notes = st.text_area(
     label_visibility="collapsed",
     placeholder="Type match / rule notes here…",
 )
+_show_line_budget("Nótaí", notai_line_budget(notai_notes))
 
 st.divider()
 
 generate = st.button("Generate PDF", type="primary", use_container_width=True)
 
 if generate:
+    budgets = [
+        ("Card 1", wallet_line_budget(wallet_notes_card1)),
+        ("Card 2", wallet_line_budget(wallet_notes_card2)),
+        ("Nótaí", notai_line_budget(notai_notes)),
+    ]
+    over = [name for name, b in budgets if not b["ok"]]
     if not title.strip():
         st.warning("Please enter a title (e.g. Football).")
+    elif over:
+        st.error(
+            "Shorten your notes first — these won’t fully fit on the PDF: "
+            + ", ".join(over)
+        )
     else:
         with st.spinner("Stamping your title and notes onto the original card…"):
             out = build_custom_card(
@@ -281,5 +313,6 @@ with st.expander("Tips"):
 - **Download notes file** to move notes to your work laptop (upload there).
 - **Card 1** = top wallet card; **Card 2** = bottom wallet card after cutting.
 - Built-in **Football** preset is always available even if you clear saved notes.
+- Line counters under each box show how much PDF space is left; Generate is blocked if you go over.
 """
     )

@@ -58,6 +58,97 @@ NOTAI_RECTS = [
     fitz.Rect(NOTAI_LEFT, BOTTOM_Y0 + 52, NOTAI_RIGHT, BOTTOM_Y0 + CARD_H - INSET),
 ]
 
+# Line-budget estimates for the UI (must stay in sync with stamp boxes / fonts)
+_LINE_HEIGHT_FACTOR = 1.2  # PyMuPDF textbox leading ≈ fontsize * 1.2
+
+
+def _max_lines_for_rect(rect: fitz.Rect, fontsize: float) -> int:
+    leading = fontsize * _LINE_HEIGHT_FACTOR
+    if leading <= 0:
+        return 0
+    return max(0, int(rect.height / leading))
+
+
+def _chars_per_line(width: float, fontsize: float) -> int:
+    # Average Helvetica glyph width ≈ 0.5em for mixed case
+    avg_char = fontsize * 0.5
+    if avg_char <= 0:
+        return 1
+    return max(8, int(width / avg_char))
+
+
+def count_wrapped_lines(text: str, width: float, fontsize: float) -> int:
+    """Estimate how many visual lines text will use in a PDF textbox."""
+    if not text.strip():
+        return 0
+    cpl = _chars_per_line(width, fontsize)
+    total = 0
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if raw == "":
+            total += 1
+            continue
+        # Word-aware wrap approximation
+        words = raw.split(" ")
+        line_len = 0
+        lines = 1
+        for i, word in enumerate(words):
+            piece = word if i == 0 or line_len == 0 else f" {word}"
+            if line_len + len(piece) <= cpl:
+                line_len += len(piece)
+            else:
+                lines += 1
+                line_len = len(word)
+                # Hard-break very long tokens
+                while line_len > cpl:
+                    lines += 1
+                    line_len -= cpl
+        total += lines
+    return total
+
+
+def wallet_line_budget(text: str) -> dict:
+    """Return used/max/remaining lines for one wallet card's notes."""
+    above = WALLET_PANELS[0]
+    below = WALLET_PANELS_BELOW[0]
+    width = above.width
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if text else []
+    # Matches _stamp_wallet_notes: short notes stay in the top box only
+    if len(lines) <= 8:
+        fontsize = 7.2
+        used = count_wrapped_lines(text, width, fontsize)
+        maximum = _max_lines_for_rect(above, fontsize)
+    else:
+        fontsize = 7.0
+        mid = max(1, len(lines) // 2)
+        top_text = "\n".join(lines[:mid])
+        bot_text = "\n".join(lines[mid:])
+        used = count_wrapped_lines(top_text, width, fontsize) + count_wrapped_lines(
+            bot_text, width, fontsize
+        )
+        maximum = _max_lines_for_rect(above, fontsize) + _max_lines_for_rect(below, fontsize)
+    remaining = maximum - used
+    return {
+        "used": used,
+        "max": maximum,
+        "remaining": remaining,
+        "ok": remaining >= 0,
+    }
+
+
+def notai_line_budget(text: str) -> dict:
+    """Return used/max/remaining lines for the Nótaí column."""
+    rect = NOTAI_RECTS[0]
+    fontsize = 7.2
+    used = count_wrapped_lines(text, rect.width, fontsize)
+    maximum = _max_lines_for_rect(rect, fontsize)
+    remaining = maximum - used
+    return {
+        "used": used,
+        "max": maximum,
+        "remaining": remaining,
+        "ok": remaining >= 0,
+    }
+
 
 def _insert_centered_title(page: fitz.Page, text: str, center_x: float, y: float, fontsize: float = 11) -> None:
     if not text.strip():
