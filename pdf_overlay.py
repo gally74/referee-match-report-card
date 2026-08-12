@@ -273,6 +273,7 @@ def build_custom_card(
     template: Path | str = TEMPLATE,
     output: Path | str | None = None,
     apply_title_to_both_covers: bool = True,
+    mode: str = "full",
     *,
     # Back-compat aliases (old top/bottom card split)
     wallet_notes_card1: str = "",
@@ -280,7 +281,12 @@ def build_custom_card(
     wallet_notes: str = "",
 ) -> Path:
     """
-    Stamp title + notes onto the original template.
+    Stamp title + notes onto cards.
+
+    mode:
+      - "full": original template artwork + notes (print brand-new cards)
+      - "notes_only": blank pages, notes/title only — re-feed already-printed blank sheets
+        with the same page count/order so alignment matches the template.
 
     Same sport on both cut cards:
       - left flap notes -> top-left + bottom-left panels
@@ -296,9 +302,14 @@ def build_custom_card(
             wallet_notes_right = wallet_notes
 
     template = Path(template)
+    mode = (mode or "full").strip().lower()
+    if mode not in {"full", "notes_only"}:
+        raise ValueError('mode must be "full" or "notes_only"')
+
     if output is None:
         safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in title.strip()) or "Custom"
-        output = Path(__file__).with_name(f"Referee_Match_Report_Card_{safe}.pdf")
+        suffix = "_notes_only" if mode == "notes_only" else ""
+        output = Path(__file__).with_name(f"Referee_Match_Report_Card_{safe}{suffix}.pdf")
     else:
         output = Path(output)
 
@@ -310,7 +321,24 @@ def build_custom_card(
     )
     notai_font = notai_line_budget(notai_notes)["fontsize"]
 
-    doc = fitz.open(template)
+    if mode == "full":
+        doc = fitz.open(template)
+    else:
+        # Blank pages matching the template page size/count for sheet re-feed alignment
+        src = fitz.open(template)
+        doc = fitz.open()
+        for i in range(len(src)):
+            rect = src[i].rect
+            page = doc.new_page(width=rect.width, height=rect.height)
+            # Light crop guides so you can check alignment without reprinting artwork
+            page.draw_line(
+                fitz.Point(CARD_W, 8), fitz.Point(CARD_W, rect.height - 8), color=(0.85, 0.85, 0.85), width=0.3
+            )
+            mid_y = TOP_Y0 + CARD_H + (BOTTOM_Y0 - (TOP_Y0 + CARD_H)) / 2
+            page.draw_line(
+                fitz.Point(8, mid_y), fitz.Point(rect.width - 8, mid_y), color=(0.85, 0.85, 0.85), width=0.3
+            )
+        src.close()
 
     cover_pages = [0]
     if apply_title_to_both_covers and len(doc) > 2:
@@ -322,7 +350,6 @@ def build_custom_card(
 
     if len(doc) > 1:
         page = doc[1]
-        # Left flaps on both cut cards; right flaps on both cut cards
         _stamp_wallet_notes(page, wallet_notes_left, (0, 2), left_font)
         _stamp_wallet_notes(page, wallet_notes_right, (1, 3), right_font)
 
@@ -340,9 +367,16 @@ def render_pdf_preview_pages(
     pdf_path: Path | str,
     page_indices: tuple[int, ...] = (0, 1, 3),
     zoom: float = 1.35,
+    mode: str = "full",
 ) -> list[tuple[str, bytes]]:
     """Return (label, png_bytes) previews for selected pages."""
     labels = {0: "Cover", 1: "Wallet flaps", 3: "Nótaí / team page"}
+    if mode == "notes_only":
+        labels = {
+            0: "Cover title only",
+            1: "Wallet notes only",
+            3: "Nótaí notes only",
+        }
     doc = fitz.open(pdf_path)
     out: list[tuple[str, bytes]] = []
     matrix = fitz.Matrix(zoom, zoom)

@@ -140,8 +140,9 @@ with st.sidebar:
 1. Pick a **preset** (Football / LGFA / Camogie / Hurling)  
 2. Edit **left** and **right** wallet notes + **Nótaí**  
 3. Notes **autosave** in this browser  
-4. **Generate PDF** → preview → download  
-5. Cut along the marks — you get **two identical sport cards**
+4. Choose **full cards** or **notes only** (for blank sheets already printed)  
+5. **Generate PDF** → preview → download  
+6. Cut along the marks — you get **two identical sport cards**
 """
     )
     st.divider()
@@ -278,6 +279,30 @@ _show_line_budget("Nótaí", notai_line_budget(notai_notes))
 _autosave_notes(local_storage, browser_store)
 
 st.divider()
+
+st.subheader("Print mode")
+print_mode = st.radio(
+    "What are you printing?",
+    options=["full", "notes_only"],
+    format_func=lambda m: (
+        "New full cards (template + notes)"
+        if m == "full"
+        else "Notes only (onto blank cards I already printed)"
+    ),
+    horizontal=False,
+    help="Use Notes only to re-feed blank A4 sheets you already printed from the original card.",
+)
+if print_mode == "notes_only":
+    st.info(
+        """
+**How to use Notes only**
+1. Your blank sheets should be from the original Referee Match Report Card PDF (same pages/order).
+2. Put those sheets back in the printer **in the same page order**, same face up/down as the first print.
+3. Generate + print this Notes-only PDF (actual size / 100% scale, no “fit to page”).
+4. Title goes on the cover pages; wallet notes on the blank flap page; Nótaí on the notes page.
+"""
+    )
+
 generate = st.button("Generate PDF", type="primary", use_container_width=True)
 
 if generate:
@@ -296,26 +321,41 @@ if generate:
     else:
         with st.spinner("Building your card…"):
             with tempfile.TemporaryDirectory() as tmp:
-                out_path = Path(tmp) / f"Referee_Match_Report_Card_{title.strip()}.pdf"
+                suffix = "_notes_only" if print_mode == "notes_only" else ""
+                out_path = Path(tmp) / (
+                    f"Referee_Match_Report_Card_{title.strip()}{suffix}.pdf"
+                )
                 build_custom_card(
                     title=title.strip(),
                     wallet_notes_left=wallet_notes_left,
                     wallet_notes_right=wallet_notes_right,
                     notai_notes=notai_notes,
                     output=out_path,
+                    mode=print_mode,
                 )
                 pdf_bytes = out_path.read_bytes()
-                previews = render_pdf_preview_pages(out_path)
+                previews = render_pdf_preview_pages(out_path, mode=print_mode)
         st.session_state["last_pdf_bytes"] = pdf_bytes
         st.session_state["last_pdf_name"] = (
-            f"Referee_Match_Report_Card_{title.strip().replace(' ', '_')}.pdf"
+            f"Referee_Match_Report_Card_{title.strip().replace(' ', '_')}{suffix}.pdf"
         )
         st.session_state["last_pdf_previews"] = previews
-        st.success("PDF ready — preview below, then download.")
+        st.session_state["last_print_mode"] = print_mode
+        if print_mode == "notes_only":
+            st.success(
+                "Notes-only PDF ready — preview below. Re-feed your blank sheets, then print."
+            )
+        else:
+            st.success("Full card PDF ready — preview below, then download.")
 
 if st.session_state.get("last_pdf_bytes"):
+    mode_label = (
+        "notes-only overlay"
+        if st.session_state.get("last_print_mode") == "notes_only"
+        else "full cards"
+    )
     st.download_button(
-        label="Download customised PDF",
+        label=f"Download PDF ({mode_label})",
         data=st.session_state["last_pdf_bytes"],
         file_name=st.session_state.get("last_pdf_name", "Referee_Match_Report_Card.pdf"),
         mime="application/pdf",
@@ -330,10 +370,12 @@ if st.session_state.get("last_pdf_bytes"):
 with st.expander("Tips"):
     st.markdown(
         """
+- **New full cards** — prints the original template with your notes (brand-new sheets).
+- **Notes only** — prints just title/notes on blank pages so you can re-feed blank cards you already printed.
+- For notes-only: same paper order, 100% scale, no fit-to-page.
 - Notes **autosave** in this browser — reopen the app later and they come back.
 - On another device, use **Download notes file** / **Upload notes file**.
 - **Left / right** = the two flaps of one wallet card; top and bottom page rows are two copies.
-- Font shrinks slightly if you’re near the limit; Generate blocks only if it still won’t fit.
 - Built-in presets: Football, LGFA, Camogie, Hurling (+ Blank).
 """
     )
