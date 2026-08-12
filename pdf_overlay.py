@@ -232,6 +232,130 @@ def _insert_centered_title(page: fitz.Page, text: str, center_x: float, y: float
     page.insert_text((x, y), text, fontsize=fontsize, fontname="helv", color=(0, 0, 0))
 
 
+def sport_icon_kind(title: str) -> str | None:
+    """Which cover icon to draw from the sport title."""
+    t = (title or "").strip().lower()
+    if not t:
+        return None
+    if "hurling" in t or "camogie" in t:
+        return "hurling"
+    if "football" in t or "lgfa" in t or "ladies" in t or "gaelic" in t:
+        return "football"
+    return "football"
+
+
+def _draw_football_icon(page: fitz.Page, cx: float, cy: float, r: float = 9.0) -> None:
+    """Simple football mark — readable when scanning a bag of cards."""
+    page.draw_circle(fitz.Point(cx, cy), r, color=(0, 0, 0), width=1.2)
+    # Centre patch
+    page.draw_polyline(
+        [
+            fitz.Point(cx, cy - r * 0.38),
+            fitz.Point(cx + r * 0.34, cy - r * 0.1),
+            fitz.Point(cx + r * 0.21, cy + r * 0.32),
+            fitz.Point(cx - r * 0.21, cy + r * 0.32),
+            fitz.Point(cx - r * 0.34, cy - r * 0.1),
+        ],
+        color=(0, 0, 0),
+        width=0.8,
+        closePath=True,
+    )
+    # Seam curves (quadratic)
+    page.draw_curve(
+        fitz.Point(cx - r * 0.78, cy - r * 0.1),
+        fitz.Point(cx, cy - r * 0.72),
+        fitz.Point(cx + r * 0.78, cy - r * 0.1),
+        color=(0, 0, 0),
+        width=0.75,
+    )
+    page.draw_curve(
+        fitz.Point(cx - r * 0.72, cy + r * 0.28),
+        fitz.Point(cx, cy + r * 0.78),
+        fitz.Point(cx + r * 0.72, cy + r * 0.28),
+        color=(0, 0, 0),
+        width=0.75,
+    )
+    page.draw_line(
+        fitz.Point(cx - r * 0.15, cy - r * 0.9),
+        fitz.Point(cx - r * 0.05, cy - r * 0.4),
+        color=(0, 0, 0),
+        width=0.7,
+    )
+    page.draw_line(
+        fitz.Point(cx + r * 0.15, cy - r * 0.9),
+        fitz.Point(cx + r * 0.05, cy - r * 0.4),
+        color=(0, 0, 0),
+        width=0.7,
+    )
+
+
+def _draw_hurling_icon(page: fitz.Page, cx: float, cy: float, scale: float = 1.0) -> None:
+    """Hurley + sliotar mark for Hurling / Camogie cards."""
+    # Hurley stick (angled)
+    shaft_w = 1.6 * scale
+    page.draw_line(
+        fitz.Point(cx - 11 * scale, cy + 7 * scale),
+        fitz.Point(cx + 2 * scale, cy - 6 * scale),
+        color=(0, 0, 0),
+        width=shaft_w,
+    )
+    # Bas (wider head)
+    page.draw_polyline(
+        [
+            fitz.Point(cx + 0.5 * scale, cy - 7.5 * scale),
+            fitz.Point(cx + 9 * scale, cy - 9 * scale),
+            fitz.Point(cx + 10 * scale, cy - 5.5 * scale),
+            fitz.Point(cx + 2.5 * scale, cy - 4 * scale),
+        ],
+        color=(0, 0, 0),
+        width=1.2 * scale,
+        closePath=True,
+        fill=(0, 0, 0),
+    )
+    # Sliotar
+    page.draw_circle(
+        fitz.Point(cx + 7 * scale, cy + 4 * scale),
+        3.2 * scale,
+        color=(0, 0, 0),
+        width=1.0,
+    )
+    page.draw_line(
+        fitz.Point(cx + 5.2 * scale, cy + 2.8 * scale),
+        fitz.Point(cx + 8.8 * scale, cy + 5.2 * scale),
+        color=(0, 0, 0),
+        width=0.6,
+    )
+
+
+def _draw_sport_icon(page: fitz.Page, kind: str | None, cx: float, cy: float) -> None:
+    if kind == "hurling":
+        _draw_hurling_icon(page, cx, cy, scale=1.05)
+    elif kind == "football":
+        _draw_football_icon(page, cx, cy, r=9.5)
+
+
+def _stamp_cover_title_and_icon(page: fitz.Page, title: str, center_x: float, title_y: float) -> None:
+    """Sport title under Record Card, with a bag-friendly icon to the left."""
+    if not title.strip():
+        return
+    fontsize = 11
+    tw = fitz.get_text_length(title.strip(), fontname="helv", fontsize=fontsize)
+    gap = 8.0
+    icon_r = 10.0
+    total_w = icon_r * 2 + gap + tw
+    left = center_x - total_w / 2
+    icon_cx = left + icon_r
+    text_x = left + icon_r * 2 + gap
+    _draw_sport_icon(page, sport_icon_kind(title), icon_cx, title_y - 3)
+    page.insert_text(
+        (text_x, title_y),
+        title.strip(),
+        fontsize=fontsize,
+        fontname="helv",
+        color=(0, 0, 0),
+    )
+
+
 def _insert_textbox(page: fitz.Page, rect: fitz.Rect, text: str, fontsize: float = 7.5) -> float:
     if not text.strip():
         return 0.0
@@ -346,7 +470,7 @@ def build_custom_card(
     for page_index in cover_pages:
         page = doc[page_index]
         for cx, cy in COVER_TITLE_SLOTS:
-            _insert_centered_title(page, title.strip(), cx, cy, fontsize=11)
+            _stamp_cover_title_and_icon(page, title.strip(), cx, cy)
 
     if len(doc) > 1:
         page = doc[1]

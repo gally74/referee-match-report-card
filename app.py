@@ -293,14 +293,21 @@ print_mode = st.radio(
     help="Use Notes only to re-feed blank A4 sheets you already printed from the original card.",
 )
 if print_mode == "notes_only":
-    st.info(
+    st.warning(
         """
-**How to use Notes only**
-1. Your blank sheets should be from the original Referee Match Report Card PDF (same pages/order).
-2. Put those sheets back in the printer **in the same page order**, same face up/down as the first print.
-3. Generate + print this Notes-only PDF (actual size / 100% scale, no “fit to page”).
-4. Title goes on the cover pages; wallet notes on the blank flap page; Nótaí on the notes page.
+**Notes-only checklist — do this every time**
+
+1. Use the **same blank sheets** you already printed from the original card PDF.  
+2. Load them in the printer in the **same page order** (page 1 first, then 2, …).  
+3. Keep the **same face up/down** as the first print (don’t flip the stack unless your printer needs it).  
+4. In the print dialog set **100% / Actual size** — turn **off** “Fit to page”, “Shrink to fit”, and “Fit to printable area”.  
+5. Use the same printer margins/duplex settings as when you printed the blanks.  
+6. Print a **single test page** first if your tray feed is unpredictable.
 """
+    )
+    st.info(
+        "Title + icon go on the cover pages; wallet notes on the flap page; "
+        "Nótaí on the notes page — positions match the blank template."
     )
 
 generate = st.button("Generate PDF", type="primary", use_container_width=True)
@@ -372,7 +379,8 @@ with st.expander("Tips"):
         """
 - **New full cards** — prints the original template with your notes (brand-new sheets).
 - **Notes only** — prints just title/notes on blank pages so you can re-feed blank cards you already printed.
-- For notes-only: same paper order, 100% scale, no fit-to-page.
+- For notes-only: same paper order, **100% / Actual size**, no fit-to-page.
+- Cover titles include a **football** or **hurley + sliotar** icon so you can spot the sport in your bag.
 - Notes **autosave** in this browser — reopen the app later and they come back.
 - On another device, use **Download notes file** / **Upload notes file**.
 - **Left / right** = the two flaps of one wallet card; top and bottom page rows are two copies.
