@@ -11,30 +11,31 @@ import fitz  # PyMuPDF
 
 TEMPLATE = Path(__file__).with_name("Referee Match Report Card.pdf")
 
-# Card geometry (matches original template)
 PAGE_W = 595.0
 CARD_W = 297.5
 CARD_H = 410.0
 TOP_Y0 = 5.5
 BOTTOM_Y0 = 426.5
 
-# Keep notes inside the cut lines (crop marks sit ~22.5pt in from panel edges)
 INSET = 32.0
 RIGHT_INSET = 40.0
 
-# Cover title sits under "Record Card" on the right-hand panels of page 0
 COVER_TITLE_SLOTS = [
     (452.8, 324.0),
     (452.8, 745.0),
 ]
 
-# Printed "Nótaí:" label starts ~336.2 — keep body text under that, clear of both cuts
 NOTAI_LEFT = 342.0
-NOTAI_RIGHT = PAGE_W - 42.0  # ~553 — clear of right crop marks
+NOTAI_RIGHT = PAGE_W - 42.0
+
+_LINE_HEIGHT_FACTOR = 1.2
+_WALLET_FONT_MAX = 7.2
+_WALLET_FONT_MIN = 5.5
+_NOTAI_FONT_MAX = 7.2
+_NOTAI_FONT_MIN = 5.5
 
 
 def _wallet_rects() -> tuple[list[fitz.Rect], list[fitz.Rect]]:
-    """Above / below the printed wallet cue, inset from cut lines (TL, TR, BL, BR)."""
     above = [
         fitz.Rect(INSET, TOP_Y0 + INSET, CARD_W - RIGHT_INSET, TOP_Y0 + 168),
         fitz.Rect(CARD_W + INSET, TOP_Y0 + INSET, PAGE_W - RIGHT_INSET, TOP_Y0 + 168),
@@ -52,14 +53,10 @@ def _wallet_rects() -> tuple[list[fitz.Rect], list[fitz.Rect]]:
 
 WALLET_PANELS, WALLET_PANELS_BELOW = _wallet_rects()
 
-# Page 3: Nótaí columns — start under "Nótaí:", inset from both cut edges
 NOTAI_RECTS = [
     fitz.Rect(NOTAI_LEFT, TOP_Y0 + 52, NOTAI_RIGHT, TOP_Y0 + CARD_H - INSET),
     fitz.Rect(NOTAI_LEFT, BOTTOM_Y0 + 52, NOTAI_RIGHT, BOTTOM_Y0 + CARD_H - INSET),
 ]
-
-# Line-budget estimates for the UI (must stay in sync with stamp boxes / fonts)
-_LINE_HEIGHT_FACTOR = 1.2  # PyMuPDF textbox leading ≈ fontsize * 1.2
 
 
 def _max_lines_for_rect(rect: fitz.Rect, fontsize: float) -> int:
@@ -70,7 +67,6 @@ def _max_lines_for_rect(rect: fitz.Rect, fontsize: float) -> int:
 
 
 def _chars_per_line(width: float, fontsize: float) -> int:
-    # Average Helvetica glyph width ≈ 0.5em for mixed case
     avg_char = fontsize * 0.5
     if avg_char <= 0:
         return 1
@@ -78,7 +74,6 @@ def _chars_per_line(width: float, fontsize: float) -> int:
 
 
 def count_wrapped_lines(text: str, width: float, fontsize: float) -> int:
-    """Estimate how many visual lines text will use in a PDF textbox."""
     if not text.strip():
         return 0
     cpl = _chars_per_line(width, fontsize)
@@ -87,7 +82,6 @@ def count_wrapped_lines(text: str, width: float, fontsize: float) -> int:
         if raw == "":
             total += 1
             continue
-        # Word-aware wrap approximation
         words = raw.split(" ")
         line_len = 0
         lines = 1
@@ -98,7 +92,6 @@ def count_wrapped_lines(text: str, width: float, fontsize: float) -> int:
             else:
                 lines += 1
                 line_len = len(word)
-                # Hard-break very long tokens
                 while line_len > cpl:
                     lines += 1
                     line_len -= cpl
@@ -106,48 +99,80 @@ def count_wrapped_lines(text: str, width: float, fontsize: float) -> int:
     return total
 
 
-def wallet_line_budget(text: str) -> dict:
-    """Return used/max/remaining lines for one wallet card's notes."""
+def _wallet_capacity(fontsize: float) -> int:
     above = WALLET_PANELS[0]
     below = WALLET_PANELS_BELOW[0]
+    return _max_lines_for_rect(above, fontsize) + _max_lines_for_rect(below, fontsize)
+
+
+def _wallet_used(text: str, fontsize: float) -> int:
+    above = WALLET_PANELS[0]
     width = above.width
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if text else []
-    # Matches _stamp_wallet_notes: short notes stay in the top box only
     if len(lines) <= 8:
-        fontsize = 7.2
-        used = count_wrapped_lines(text, width, fontsize)
-        maximum = _max_lines_for_rect(above, fontsize)
-    else:
-        fontsize = 7.0
-        mid = max(1, len(lines) // 2)
-        top_text = "\n".join(lines[:mid])
-        bot_text = "\n".join(lines[mid:])
-        used = count_wrapped_lines(top_text, width, fontsize) + count_wrapped_lines(
-            bot_text, width, fontsize
-        )
-        maximum = _max_lines_for_rect(above, fontsize) + _max_lines_for_rect(below, fontsize)
-    remaining = maximum - used
-    return {
+        # Short notes only use the top box at this font
+        return count_wrapped_lines(text, width, fontsize)
+    mid = max(1, len(lines) // 2)
+    return count_wrapped_lines("\n".join(lines[:mid]), width, fontsize) + count_wrapped_lines(
+        "\n".join(lines[mid:]), width, fontsize
+    )
+
+
+def _fit_fontsize(
+    text: str,
+    used_fn,
+    capacity_fn,
+    font_max: float,
+    font_min: float,
+) -> tuple[float, dict]:
+    """Pick the largest font that fits; return (fontsize, budget dict)."""
+    if not text.strip():
+        maximum = capacity_fn(font_max)
+        return font_max, {"used": 0, "max": maximum, "remaining": maximum, "ok": True, "fontsize": font_max}
+
+    fontsize = font_max
+    while fontsize >= font_min - 0.05:
+        used = used_fn(text, fontsize)
+        maximum = capacity_fn(fontsize)
+        if used <= maximum:
+            return round(fontsize, 1), {
+                "used": used,
+                "max": maximum,
+                "remaining": maximum - used,
+                "ok": True,
+                "fontsize": round(fontsize, 1),
+            }
+        fontsize -= 0.3
+
+    used = used_fn(text, font_min)
+    maximum = capacity_fn(font_min)
+    return font_min, {
         "used": used,
         "max": maximum,
-        "remaining": remaining,
-        "ok": remaining >= 0,
+        "remaining": maximum - used,
+        "ok": used <= maximum,
+        "fontsize": font_min,
     }
+
+
+def wallet_line_budget(text: str) -> dict:
+    _, budget = _fit_fontsize(
+        text, _wallet_used, _wallet_capacity, _WALLET_FONT_MAX, _WALLET_FONT_MIN
+    )
+    return budget
 
 
 def notai_line_budget(text: str) -> dict:
-    """Return used/max/remaining lines for the Nótaí column."""
     rect = NOTAI_RECTS[0]
-    fontsize = 7.2
-    used = count_wrapped_lines(text, rect.width, fontsize)
-    maximum = _max_lines_for_rect(rect, fontsize)
-    remaining = maximum - used
-    return {
-        "used": used,
-        "max": maximum,
-        "remaining": remaining,
-        "ok": remaining >= 0,
-    }
+
+    def used_fn(t: str, fs: float) -> int:
+        return count_wrapped_lines(t, rect.width, fs)
+
+    def cap_fn(fs: float) -> int:
+        return _max_lines_for_rect(rect, fs)
+
+    _, budget = _fit_fontsize(text, used_fn, cap_fn, _NOTAI_FONT_MAX, _NOTAI_FONT_MIN)
+    return budget
 
 
 def _insert_centered_title(page: fitz.Page, text: str, center_x: float, y: float, fontsize: float = 11) -> None:
@@ -155,19 +180,13 @@ def _insert_centered_title(page: fitz.Page, text: str, center_x: float, y: float
         return
     tw = fitz.get_text_length(text, fontname="helv", fontsize=fontsize)
     x = center_x - tw / 2
-    page.insert_text(
-        (x, y),
-        text,
-        fontsize=fontsize,
-        fontname="helv",
-        color=(0, 0, 0),
-    )
+    page.insert_text((x, y), text, fontsize=fontsize, fontname="helv", color=(0, 0, 0))
 
 
-def _insert_textbox(page: fitz.Page, rect: fitz.Rect, text: str, fontsize: float = 7.5) -> None:
+def _insert_textbox(page: fitz.Page, rect: fitz.Rect, text: str, fontsize: float = 7.5) -> float:
     if not text.strip():
-        return
-    page.insert_textbox(
+        return 0.0
+    return page.insert_textbox(
         rect,
         text.strip(),
         fontsize=fontsize,
@@ -181,8 +200,8 @@ def _stamp_wallet_notes(
     page: fitz.Page,
     notes: str,
     panel_indices: tuple[int, ...],
+    fontsize: float,
 ) -> None:
-    """Stamp notes onto selected panels (0=TL, 1=TR, 2=BL, 3=BR)."""
     if not notes.strip():
         return
     lines = notes.strip().splitlines()
@@ -190,34 +209,42 @@ def _stamp_wallet_notes(
         above = WALLET_PANELS[i]
         below = WALLET_PANELS_BELOW[i]
         if len(lines) <= 8:
-            _insert_textbox(page, above, notes, fontsize=7.2)
+            _insert_textbox(page, above, notes, fontsize=fontsize)
         else:
             mid = max(1, len(lines) // 2)
-            _insert_textbox(page, above, "\n".join(lines[:mid]), fontsize=7.0)
-            _insert_textbox(page, below, "\n".join(lines[mid:]), fontsize=7.0)
+            _insert_textbox(page, above, "\n".join(lines[:mid]), fontsize=fontsize)
+            _insert_textbox(page, below, "\n".join(lines[mid:]), fontsize=fontsize)
 
 
 def build_custom_card(
     title: str,
-    wallet_notes_card1: str = "",
-    wallet_notes_card2: str = "",
+    wallet_notes_left: str = "",
+    wallet_notes_right: str = "",
     notai_notes: str = "",
     template: Path | str = TEMPLATE,
     output: Path | str | None = None,
     apply_title_to_both_covers: bool = True,
     *,
-    wallet_notes: str = "",  # backwards-compatible: used for both cards if set alone
+    # Back-compat aliases (old top/bottom card split)
+    wallet_notes_card1: str = "",
+    wallet_notes_card2: str = "",
+    wallet_notes: str = "",
 ) -> Path:
     """
-    Copy the original PDF and stamp:
-      - title under "Referee's Match Record Card" on the front cover(s)
-      - wallet_notes_card1 onto the TOP card (left + right panels)
-      - wallet_notes_card2 onto the BOTTOM card (left + right panels)
-      - notai_notes into the Nótaí columns (page 3)
+    Stamp title + notes onto the original template.
+
+    Same sport on both cut cards:
+      - left flap notes -> top-left + bottom-left panels
+      - right flap notes -> top-right + bottom-right panels
+      - Nótaí -> both Nótaí columns
     """
-    if wallet_notes and not wallet_notes_card1 and not wallet_notes_card2:
-        wallet_notes_card1 = wallet_notes
-        wallet_notes_card2 = wallet_notes
+    if not wallet_notes_left and not wallet_notes_right:
+        if wallet_notes_card1 or wallet_notes_card2:
+            wallet_notes_left = wallet_notes_card1
+            wallet_notes_right = wallet_notes_card2
+        elif wallet_notes:
+            wallet_notes_left = wallet_notes
+            wallet_notes_right = wallet_notes
 
     template = Path(template)
     if output is None:
@@ -226,37 +253,61 @@ def build_custom_card(
     else:
         output = Path(output)
 
+    left_font, _ = _fit_fontsize(
+        wallet_notes_left, _wallet_used, _wallet_capacity, _WALLET_FONT_MAX, _WALLET_FONT_MIN
+    )
+    right_font, _ = _fit_fontsize(
+        wallet_notes_right, _wallet_used, _wallet_capacity, _WALLET_FONT_MAX, _WALLET_FONT_MIN
+    )
+    notai_font = notai_line_budget(notai_notes)["fontsize"]
+
     doc = fitz.open(template)
 
-    # --- Page 0 (and optionally page 2): cover title ---
     cover_pages = [0]
     if apply_title_to_both_covers and len(doc) > 2:
         cover_pages.append(2)
-
     for page_index in cover_pages:
         page = doc[page_index]
         for cx, cy in COVER_TITLE_SLOTS:
             _insert_centered_title(page, title.strip(), cx, cy, fontsize=11)
 
-    # --- Page 1: blank wallet panels (two cards after cutting) ---
     if len(doc) > 1:
         page = doc[1]
-        _stamp_wallet_notes(page, wallet_notes_card1, (0, 1))  # top card
-        _stamp_wallet_notes(page, wallet_notes_card2, (2, 3))  # bottom card
+        # Left flaps on both cut cards; right flaps on both cut cards
+        _stamp_wallet_notes(page, wallet_notes_left, (0, 2), left_font)
+        _stamp_wallet_notes(page, wallet_notes_right, (1, 3), right_font)
 
-    # --- Page 3: Nótaí columns ---
     if notai_notes.strip() and len(doc) > 3:
         page = doc[3]
         for rect in NOTAI_RECTS:
-            _insert_textbox(page, rect, notai_notes, fontsize=7.2)
+            _insert_textbox(page, rect, notai_notes, fontsize=notai_font)
 
     doc.save(output)
     doc.close()
     return output
 
 
-# Defaults split across the two cut cards (from your handwritten notes)
-DEFAULT_FOOTBALL_WALLET_CARD1 = """Solo & go.
+def render_pdf_preview_pages(
+    pdf_path: Path | str,
+    page_indices: tuple[int, ...] = (0, 1, 3),
+    zoom: float = 1.35,
+) -> list[tuple[str, bytes]]:
+    """Return (label, png_bytes) previews for selected pages."""
+    labels = {0: "Cover", 1: "Wallet flaps", 3: "Nótaí / team page"}
+    doc = fitz.open(pdf_path)
+    out: list[tuple[str, bytes]] = []
+    matrix = fitz.Matrix(zoom, zoom)
+    for i in page_indices:
+        if i >= len(doc):
+            continue
+        pix = doc[i].get_pixmap(matrix=matrix, alpha=False)
+        out.append((labels.get(i, f"Page {i + 1}"), pix.tobytes("png")))
+    doc.close()
+    return out
+
+
+# --- Default Football notes (left / right flaps from your handwritten card) ---
+DEFAULT_FOOTBALL_WALLET_LEFT = """Solo & go.
 within 4m.
 NOT Inside 20
 NOT GO BACKWARDS = take a normal free
@@ -268,7 +319,7 @@ U18 = Black Card. 10 min Sin Bin
 Team Official. 20m FREE on their 13m
 YELLOW CARD"""
 
-DEFAULT_FOOTBALL_WALLET_CARD2 = """4 v 3.
+DEFAULT_FOOTBALL_WALLET_RIGHT = """4 v 3.
 Free on the halfway while carrying, receiving or intercepting.
 free on 20 NOT 13 for any other breach
 
@@ -276,11 +327,6 @@ Goalkeeper receive the ball
 1 Both are inside Large Rect.
 2 Opposition half.
 1 = Ball was kicked in by an opponent & both GK & teammate were in large rect"""
-
-# Kept for older imports / single-box fallback
-DEFAULT_FOOTBALL_WALLET = (
-    DEFAULT_FOOTBALL_WALLET_CARD1.rstrip() + "\n\n" + DEFAULT_FOOTBALL_WALLET_CARD2
-)
 
 DEFAULT_FOOTBALL_NOTAI = """Size 5 Fe16
 Subs - 5 - Slips
@@ -309,12 +355,98 @@ Distract free taker.
 Can Solo & Go for free up to 13m
 can drive outside 40"""
 
+# Back-compat names
+DEFAULT_FOOTBALL_WALLET_CARD1 = DEFAULT_FOOTBALL_WALLET_LEFT
+DEFAULT_FOOTBALL_WALLET_CARD2 = DEFAULT_FOOTBALL_WALLET_RIGHT
+DEFAULT_FOOTBALL_WALLET = (
+    DEFAULT_FOOTBALL_WALLET_LEFT.rstrip() + "\n\n" + DEFAULT_FOOTBALL_WALLET_RIGHT
+)
+
+DEFAULT_LGFA_WALLET_LEFT = """Match setup
+Ball: Size 4 (younger) / Size 5 (adult)
+Subs: check competition (slips)
+Halves: typically 30 mins (bye-laws)
+
+Penalty = 11m
+Players outside 20 + Arc
+3 occasions:
+  goal-scoring opp
+  foul in small rect
+  aggressive in large"""
+
+DEFAULT_LGFA_WALLET_RIGHT = """Kick-out from 20m
+Players outside 20 + arc until kicked
+Forward underhand = throw-in / as ruled
+
+Technical fouls -> 13m free
+Fail to retreat / time wasting -> advance
+Distract free-taker -> advance
+Captains only for dissent
+Yellow / Red / sin bin as directed"""
+
+DEFAULT_LGFA_NOTAI = """LGFA quick notes
+Check bye-laws for grade
+Subs / slips as competition requires
+Sin bin / black card: competition directive
+Team official misconduct -> free + card
+Write match-specific reminders below:"""
+
+DEFAULT_CAMOGIE_WALLET_LEFT = """Match setup
+Sliotar: Size 4 (check grade)
+15 / 12 / 11-a-side per competition
+Subs: check competition (slips)
+Halves: typically 30 mins (bye-laws)
+
+Penalty: 11m
+Players outside 20m + arc
+Foul in small square / denying goal"""
+
+DEFAULT_CAMOGIE_WALLET_RIGHT = """Puck-out from hand / small square as ruled
+45m free for wide / over end line by defender
+Sideline cut — from the ground
+Technical foul in large rect -> free as ruled
+
+Yellow / Red as per Camogie rules
+Persistent / dangerous play -> escalate
+Team official: free + caution / send-off
+Captains for approach / dissent"""
+
+DEFAULT_CAMOGIE_NOTAI = """Camogie quick notes
+Confirm grade / team size before throw-in
+Check competition sub rules
+Write match-specific reminders below:"""
+
+DEFAULT_HURLING_WALLET_LEFT = """Match setup
+Sliotar: Size 5 (adult) / check underage
+Subs: slips / temporary replacement
+Halves: typically 30 / 35 mins
+
+Penalty: 20m
+Players outside 20m + arc
+Foul in small square / cynical denial"""
+
+DEFAULT_HURLING_WALLET_RIGHT = """Puck-out from 20m line (current rules)
+Travel outside large / as directed
+65m free for wide / over end line by defender
+Sideline cut — from the ground
+Advantage: play on when clear
+
+Yellow / Red as per Hurling rules
+Cynical foul / pull-down -> card / sin bin if directed
+Team official misconduct -> free + card
+Captains only for dissent"""
+
+DEFAULT_HURLING_NOTAI = """Hurling quick notes
+Confirm competition directives
+Temporary replacement / blood sub rules
+Write match-specific reminders below:"""
+
 
 if __name__ == "__main__":
     out = build_custom_card(
         title="Football",
-        wallet_notes_card1=DEFAULT_FOOTBALL_WALLET_CARD1,
-        wallet_notes_card2=DEFAULT_FOOTBALL_WALLET_CARD2,
+        wallet_notes_left=DEFAULT_FOOTBALL_WALLET_LEFT,
+        wallet_notes_right=DEFAULT_FOOTBALL_WALLET_RIGHT,
         notai_notes=DEFAULT_FOOTBALL_NOTAI,
     )
     print(f"Wrote {out.resolve()}")
